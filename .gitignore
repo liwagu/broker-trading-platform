@@ -57,3 +57,10 @@ Thumbs.db
 
 # Logs
 logs/
+
+# Next.js / Node.js
+trading-ui/node_modules/
+trading-ui/.next/
+trading-ui/out/
+trading-ui/dist/
+trading-ui/.turbo/
