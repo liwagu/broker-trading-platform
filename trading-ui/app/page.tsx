@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const API_URL = "http://localhost:8080";
+const AI_API_URL = "http://localhost:5001";
 
 const SECURITIES = [
   { isin: "US67066G1040", name: "NVIDIA Corp", price: 100.00 },
@@ -30,6 +31,24 @@ type Order = {
   status: "CREATED" | "EXECUTED" | "CANCELLED";
 };
 
+type PredictionPoint = {
+  date: string;
+  predicted_price: number;
+  confidence_lower: number;
+  confidence_upper: number;
+};
+
+type Prediction = {
+  isin: string;
+  security_name: string;
+  current_price: number;
+  predictions: PredictionPoint[];
+  signal: "BUY" | "SELL" | "HOLD";
+  confidence: number;
+  trend: string;
+  ai_summary: string;
+};
+
 export default function TradingPlatform() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [portfolioId, setPortfolioId] = useState(PORTFOLIOS[0]);
@@ -38,6 +57,9 @@ export default function TradingPlatform() {
   const [quantity, setQuantity] = useState("10");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const [prediction, setPrediction] = useState<Prediction | null>(null);
+  const [predictLoading, setPredictLoading] = useState(false);
+  const [forecastIsin, setForecastIsin] = useState(SECURITIES[0].isin);
 
   const fetchOrders = async () => {
     // Note: This is a simple demo - in production you'd have an endpoint to list all orders
@@ -129,6 +151,23 @@ export default function TradingPlatform() {
     }
   };
 
+  const fetchPrediction = async (targetIsin: string) => {
+    setPredictLoading(true);
+    try {
+      const response = await fetch(`${AI_API_URL}/predict/${targetIsin}?horizon_days=5`);
+      const data = await response.json();
+      if (response.ok) {
+        setPrediction(data);
+      } else {
+        setMessage(`❌ AI Service Error: ${data.message || "Unable to fetch prediction"}`);
+      }
+    } catch (error) {
+      setMessage(`❌ AI Service Unavailable. Make sure it's running on port 5001.`);
+    } finally {
+      setPredictLoading(false);
+    }
+  };
+
   const selectedSecurity = SECURITIES.find(s => s.isin === isin);
   const estimatedTotal = selectedSecurity ? (selectedSecurity.price * parseFloat(quantity || "0")).toFixed(2) : "0.00";
 
@@ -144,6 +183,7 @@ export default function TradingPlatform() {
           <TabsList>
             <TabsTrigger value="trade">Trade</TabsTrigger>
             <TabsTrigger value="orders">Orders</TabsTrigger>
+            <TabsTrigger value="ai-forecast">🤖 AI Forecast</TabsTrigger>
             <TabsTrigger value="query">Query Order</TabsTrigger>
           </TabsList>
 
@@ -327,6 +367,111 @@ export default function TradingPlatform() {
                 )}
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="ai-forecast">
+            <div className="grid gap-6 md:grid-cols-2">
+              <Card>
+                <CardHeader>
+                  <CardTitle>AI Price Prediction</CardTitle>
+                  <CardDescription>Get 5-day forecast powered by Kronos</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Select Security</Label>
+                    <Select value={forecastIsin} onValueChange={setForecastIsin}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {SECURITIES.map(s => (
+                          <SelectItem key={s.isin} value={s.isin}>
+                            {s.name} (${s.price})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <Button
+                    onClick={() => fetchPrediction(forecastIsin)}
+                    disabled={predictLoading}
+                    className="w-full"
+                    size="lg"
+                  >
+                    {predictLoading ? "Analyzing..." : "🔮 Get AI Prediction"}
+                  </Button>
+
+                  {prediction && (
+                    <div className="space-y-4 mt-6">
+                      <div className="p-4 bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-950 dark:to-blue-950 rounded-lg">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="font-semibold">AI Signal</span>
+                          <Badge
+                            variant={prediction.signal === "BUY" ? "default" : prediction.signal === "SELL" ? "destructive" : "secondary"}
+                            className="text-lg px-4 py-1"
+                          >
+                            {prediction.signal}
+                          </Badge>
+                        </div>
+                        <div className="text-sm text-muted-foreground">
+                          Confidence: {(prediction.confidence * 100).toFixed(0)}% • Trend: {prediction.trend}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Forecast Details</CardTitle>
+                  <CardDescription>AI-powered price predictions</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {prediction ? (
+                    <div className="space-y-4">
+                      <div className="p-4 bg-muted rounded-lg">
+                        <p className="text-sm leading-relaxed">{prediction.ai_summary}</p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <h4 className="font-medium text-sm">5-Day Forecast</h4>
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Date</TableHead>
+                              <TableHead>Price</TableHead>
+                              <TableHead>Range</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {prediction.predictions.map((pred, idx) => (
+                              <TableRow key={idx}>
+                                <TableCell className="font-mono text-xs">{pred.date}</TableCell>
+                                <TableCell className="font-bold">${pred.predicted_price.toFixed(2)}</TableCell>
+                                <TableCell className="text-xs text-muted-foreground">
+                                  ${pred.confidence_lower.toFixed(2)} - ${pred.confidence_upper.toFixed(2)}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+
+                      <div className="text-xs text-muted-foreground pt-4 border-t">
+                        <p>⚡ Powered by Kronos (Tsinghua University)</p>
+                        <p className="mt-1">Model trained on 45+ global exchanges</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-center text-muted-foreground py-8">
+                      Select a security and click "Get AI Prediction" to see the forecast.
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
           </TabsContent>
 
           <TabsContent value="query">
