@@ -4,7 +4,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     KRONOS_MODE=auto \
-    KRONOS_DEVICE=cpu
+    KRONOS_DEVICE=cpu \
+    KRONOS_MODEL_ID=NeoQuasar/Kronos-small \
+    KRONOS_TOKENIZER_ID=NeoQuasar/Kronos-Tokenizer-base \
+    KRONOS_MAX_CONTEXT=512 \
+    KRONOS_CLIP=5
 
 WORKDIR /app
 
@@ -14,12 +18,16 @@ RUN apt-get update \
 
 COPY requirements.txt ./
 
-# Optional Kronos installation (set at build time: --build-arg INCLUDE_KRONOS=true)
-ARG INCLUDE_KRONOS=false
-
+# Install Python dependencies (includes torch and huggingface_hub for Model Registry pattern)
 RUN pip install --upgrade pip \
-    && pip install -r requirements.txt \
-    && if [ "$INCLUDE_KRONOS" = "true" ]; then pip install kronos; fi
+    && pip install -r requirements.txt
+
+# Model Registry Pattern:
+# - Inference code is shipped in the container (kronos_integration/)
+# - Model weights are downloaded from Hugging Face Hub at startup
+# - Set KRONOS_MODE=auto to try Kronos first, fallback to simulator
+# - Set KRONOS_MODE=kronos to require Kronos (fail if unavailable)
+# - Set KRONOS_MODE=simulated to always use statistical simulator
 
 COPY . .
 

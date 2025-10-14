@@ -1,14 +1,24 @@
-version: "3.9"
-
 services:
   ai-service:
     build:
       context: ./ai-service
     environment:
+      # Kronos Mode: auto (try Kronos, fallback to simulator) | kronos (require Kronos) | simulated (always simulator)
       - KRONOS_MODE=auto
       - KRONOS_DEVICE=cpu
+      # Model Registry: HuggingFace model IDs (weights downloaded at startup)
+      - KRONOS_MODEL_ID=NeoQuasar/Kronos-small
+      - KRONOS_TOKENIZER_ID=NeoQuasar/Kronos-Tokenizer-base
+      # Model Parameters
+      - KRONOS_MAX_CONTEXT=512
+      - KRONOS_CLIP=5
+      # Optional: HuggingFace token for private models (mount as secret in production)
+      # - HF_TOKEN=${HF_TOKEN}
     ports:
       - "5001:5001"
+    # Optional: Mount HuggingFace cache to persist downloaded models
+    # volumes:
+    #   - ./cache/huggingface:/root/.cache/huggingface
 
   trading-service:
     build:

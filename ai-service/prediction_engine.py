@@ -76,48 +76,91 @@ class BasePredictor:
 
 
 class KronosPredictorBackend(BasePredictor):
-    """Adapter that loads the official Kronos foundation model."""
+    """
+    Adapter that loads Kronos model weights from Hugging Face Hub.
+    
+    Uses Model Registry pattern:
+    - Model weights downloaded from HuggingFace at startup
+    - Cached locally for faster subsequent loads
+    - Only inference code shipped in container
+    """
 
     def __init__(self, model_name: str | None = None, device: str | None = None):
-        model_name = model_name or os.getenv("KRONOS_MODEL_NAME", "shiyu-coder/Kronos-mini")
-        device = device or os.getenv("KRONOS_DEVICE")
-
         try:
-            from kronos import KronosPredictor  # type: ignore
+            from kronos_integration import KronosPredictorBackend as RealKronosBackend
         except Exception as exc:  # pragma: no cover - exercised when kronos missing
             raise RuntimeError(
-                "Kronos library not available. Install it or set KRONOS_MODE=simulated."
+                "Kronos integration not available. Install dependencies or set KRONOS_MODE=simulated."
             ) from exc
 
-        logger.info("Loading Kronos predictor %s with device %s", model_name, device or "auto")
-        if device:
-            self._predictor = KronosPredictor.from_pretrained(model_name, device=device)
-        else:
-            self._predictor = KronosPredictor.from_pretrained(model_name)
+        logger.info("Initializing Kronos predictor with Model Registry pattern (HuggingFace Hub)")
+        self._backend = RealKronosBackend()
 
-    def predict(self, isin: str, horizon_days: int) -> Prediction:  # pragma: no cover - depends on kronos
-        forecast = self._predictor.predict(isin=isin, horizon=horizon_days)
+    def predict(self, isin: str, horizon_days: int) -> Prediction:
+        """
+        Generate prediction using Kronos model from HuggingFace Hub.
+        
+        The backend downloads model weights automatically and returns predictions.
+        """
+        raw_result = self._backend.predict(isin, horizon_days)
 
+        # Convert backend format to our standardized Prediction format
         predictions: List[PredictionPoint] = []
-        for item in forecast.predictions:  # type: ignore[attr-defined]
+        for pred_point in raw_result.get('predictions', []):
+            # Calculate confidence interval from confidence score
+            predicted_price = pred_point['predicted_price']
+            confidence = pred_point.get('confidence', 0.85)
+            confidence_width = predicted_price * (1 - confidence) * 0.5
+            
             predictions.append(
                 PredictionPoint(
-                    date=item.date,
-                    predicted_price=float(item.predicted_price),
-                    confidence_lower=float(item.confidence_interval[0]),
-                    confidence_upper=float(item.confidence_interval[1]),
+                    date=pred_point.get('date', ''),
+                    predicted_price=predicted_price,
+                    confidence_lower=predicted_price - confidence_width,
+                    confidence_upper=predicted_price + confidence_width,
                 )
             )
 
+        # Determine trading signal based on price movement
+        current_price = raw_result.get('current_price', 100.0)
+        if predictions:
+            final_price = predictions[-1].predicted_price
+            price_change_pct = ((final_price - current_price) / current_price) * 100
+            
+            if price_change_pct > 2:
+                signal = "BUY"
+                trend = "bullish"
+                confidence_score = 0.85
+            elif price_change_pct < -2:
+                signal = "SELL"
+                trend = "bearish"
+                confidence_score = 0.82
+            else:
+                signal = "HOLD"
+                trend = "neutral"
+                confidence_score = 0.75
+                
+            ai_summary = (
+                f"Kronos model predicts {price_change_pct:+.1f}% move in {horizon_days} days. "
+                f"Model: {raw_result.get('model_version', 'unknown')}"
+            )
+        else:
+            signal = "HOLD"
+            trend = "neutral"
+            confidence_score = 0.5
+            ai_summary = "Insufficient data for prediction"
+
+        security_name = SECURITIES.get(isin, {}).get("name", "Unknown Security")
+
         return Prediction(
-            isin=forecast.isin,
-            security_name=forecast.security_name,
-            current_price=float(forecast.current_price),
+            isin=isin,
+            security_name=security_name,
+            current_price=current_price,
             predictions=predictions,
-            signal=forecast.signal,
-            confidence=float(forecast.confidence),
-            trend=forecast.trend,
-            ai_summary=forecast.ai_summary,
+            signal=signal,
+            confidence=confidence_score,
+            trend=trend,
+            ai_summary=ai_summary,
         )
 
 
