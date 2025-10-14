@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -61,10 +61,6 @@ export default function TradingPlatform() {
   const [predictLoading, setPredictLoading] = useState(false);
   const [forecastIsin, setForecastIsin] = useState(SECURITIES[0].isin);
 
-  const fetchOrders = async () => {
-    // Note: This is a simple demo - in production you'd have an endpoint to list all orders
-    // For now, we'll just keep track of created orders in state
-  };
 
   const createOrder = async () => {
     setLoading(true);
@@ -161,7 +157,7 @@ export default function TradingPlatform() {
       } else {
         setMessage(`❌ Prediction Error: ${data.detail || data.message || "Unable to fetch prediction"}`);
       }
-    } catch (error) {
+    } catch {
       setMessage(`❌ Prediction service unavailable. Ensure the trading backend can reach the AI service.`);
     } finally {
       setPredictLoading(false);
@@ -466,7 +462,7 @@ export default function TradingPlatform() {
                     </div>
                   ) : (
                     <p className="text-center text-muted-foreground py-8">
-                      Select a security and click "Get AI Prediction" to see the forecast.
+                      Select a security and click &quot;Get AI Prediction&quot; to see the forecast.
                     </p>
                   )}
                 </CardContent>
