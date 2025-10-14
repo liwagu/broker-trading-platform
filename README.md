@@ -50,35 +50,40 @@ An AI-powered trading platform with microservice architecture. Built with Spring
 ┌─────────────────────────────────────────────────────────────┐
 │                    Web Browser (Port 3002)                  │
 │                  Next.js + shadcn/ui + TypeScript           │
-└─────────────────┬───────────────────────────────────────────┘
-                  │ HTTP/REST
-                  ├──────────────────┬────────────────────────┐
-                  ▼                  ▼                        ▼
-    ┌──────────────────────┐  ┌──────────────────┐  ┌───────────────────┐
-    │  Trading Service     │  │   AI Service     │  │   Static Data     │
-    │  (Port 8080)         │  │   (Port 5001)    │  │                   │
-    │                      │  │                  │  │                   │
-    │  Spring Boot 3       │  │  FastAPI         │  │  - Market prices  │
-    │  - Order management  │  │  - Kronos model  │  │  - ISIN mapping   │
-    │  - Portfolio mgmt    │  │  - Predictions   │  │                   │
-    │  - Inventory track   │  │  - Signals       │  │                   │
-    └──────────┬───────────┘  └──────────────────┘  └───────────────────┘
-               │
-               ▼
-    ┌──────────────────────┐
-    │   H2 Database        │
-    │   (In-Memory)        │
-    │  - Orders            │
-    │  - Portfolios        │
-    │  - Inventory         │
-    └──────────────────────┘
+│                        (trading-ui)                         │
+└───────────────┬─────────────────────────────────────────────┘
+                │ REST calls
+                ▼
+┌─────────────────────────────────────────────────────────────┐
+│               Trading Service (Port 8080)                   │
+│                    Spring Boot 3                            │
+│  - Order + portfolio engine                                 │
+│  - REST facade for Kronos predictions (/predictions/{isin})  │
+│  - In-memory H2 persistence for demo data                   │
+└───────────────┬─────────────────────────────────────────────┘
+                │ REST call
+                ▼
+┌─────────────────────────────────────────────────────────────┐
+│                  AI Service (Port 5001)                     │
+│                         FastAPI                            │
+│  - Loads Kronos foundation model (or simulated fallback)    │
+│  - Generates multi-day price forecasts + signals            │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ### Microservices Communication
-- **Frontend → Trading Service**: Order CRUD operations
-- **Frontend → AI Service**: Price predictions and trading signals
+- **Frontend → Trading Service**: Order CRUD operations and prediction requests (`/predictions/{isin}`)
+- **Trading Service → AI Service**: Delegates Kronos inference calls and returns structured responses
 - **Trading Service**: Independent order execution and portfolio management
-- **AI Service**: Independent ML inference using Kronos algorithms
+- **AI Service**: Independent ML inference using Kronos algorithms (falls back to simulator when Kronos unavailable)
+
+### Why a Spring Boot Trading Service?
+- **Domain orchestration**: It owns order validation, buying power rules, and portfolio state so the AI model stays focused on inference.
+- **API aggregation**: The frontend talks to a single backend host. The Spring service proxies `/predictions/{isin}` to the FastAPI layer and can merge Kronos insights with trading data as needed.
+- **Future exchange integration**: If you later connect to a broker (e.g., Binance) this service is the place to manage credentials, rate limiting, order status tracking, and compliance checks. The current open-source version does **not** connect to any real exchange; all balances and fills are simulated.
+- **Security boundary**: Sensitive operations (wallet keys, order routing) remain server-side. The UI never sees your broker secrets.
+
+If you want real Binance execution, you would extend this service with the Binance REST/WebSocket SDK, inject API keys via environment variables or a secrets vault, and replace the simulated inventory/buying power logic with actual account calls. Until then, you can use the app as a sandbox to explore Kronos signals and test trading workflows without risking capital.
 
 ## Getting Started
 
@@ -90,6 +95,23 @@ An AI-powered trading platform with microservice architecture. Built with Spring
 - **Maven 3.6+** - For building Java project
 
 ### Installation & Running
+
+#### Docker Compose (All Services)
+```bash
+docker compose up --build
+```
+
+- `trading-ui` listens on http://localhost:3000
+- `trading-service` (Spring Boot) on http://localhost:8080
+- `ai-service` (FastAPI) on http://localhost:5001
+
+To force the AI container into simulator mode, pass `KRONOS_MODE=simulated`:
+
+```bash
+KRONOS_MODE=simulated docker compose up --build
+```
+
+Kronos will download model weights on first use and cache them inside the container layer. Rebuilding the image with `--build` or using a persistent volume (e.g. mounting `./.cache/kronos:/root/.cache/kronos`) keeps the weights for subsequent runs.
 
 #### 1. Trading Service (Port 8080)
 ```bash
@@ -132,6 +154,16 @@ npm run dev
 - **Trading API**: http://localhost:8080
 - **AI API**: http://localhost:5001
 - **AI API Docs**: http://localhost:5001/docs
+
+### Environment Configuration
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `KRONOS_MODE` | `auto` | `auto` loads Kronos if available, `simulated` forces the statistical fallback. |
+| `KRONOS_DEVICE` | `cpu` | Override to `cuda` when running on a GPU host. |
+| `KRONOS_MODEL_NAME` | `shiyu-coder/Kronos-mini` | Pretrained Kronos checkpoint to load. |
+| `PREDICTION_SERVICE_BASE_URL` | `http://localhost:5001` | Base URL that Spring Boot uses to call the AI service. Set automatically in Docker Compose. |
+| `NEXT_PUBLIC_API_BASE_URL` | `http://localhost:8080` | Frontend base URL for the trading service API. |
 
 ## API Endpoints
 
@@ -294,6 +326,16 @@ Kronos: An Open-Source Foundation Model for Financial Time Series
 Tsinghua University, 2024
 https://github.com/shiyu-coder/Kronos
 ```
+
+## Live Exchange Integration Roadmap
+
+If you decide to route Kronos signals to a real exchange (e.g., Binance), plan for:
+
+1. **Credential management** – keep API keys in a secrets manager or encrypted `.env` file that never reaches source control. Mount them into containers via environment variables such as `BINANCE_API_KEY` and `BINANCE_API_SECRET`.
+2. **Broker client service** – implement a `BrokerExecutionService` inside the Spring Boot app to wrap the official exchange SDK, enforce rate limits, log requests, and translate exchange errors into domain errors.
+3. **Risk controls & modes** – require an explicit "live" flag before sending real orders, add per-portfolio position limits, and maintain an audit trail for compliance.
+4. **Secret rotation & monitoring** – rotate API keys regularly, alert on failed auth attempts, and track latency/error metrics so the trading engine can fall back to simulation if the broker is unavailable.
+5. **Testing strategy** – use the exchange's sandbox (Binance Testnet) so you can verify order flows without risking capital before toggling the production credentials.
 
 ## License
 

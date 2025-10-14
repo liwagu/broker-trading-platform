@@ -10,8 +10,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-const API_URL = "http://localhost:8080";
-const AI_API_URL = "http://localhost:5001";
+const API_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080";
+const AI_API_URL = `${API_URL}/predictions`;
 
 const SECURITIES = [
   { isin: "US67066G1040", name: "NVIDIA Corp", price: 100.00 },
@@ -154,15 +154,15 @@ export default function TradingPlatform() {
   const fetchPrediction = async (targetIsin: string) => {
     setPredictLoading(true);
     try {
-      const response = await fetch(`${AI_API_URL}/predict/${targetIsin}?horizon_days=5`);
+      const response = await fetch(`${AI_API_URL}/${targetIsin}?horizon_days=5`);
       const data = await response.json();
       if (response.ok) {
         setPrediction(data);
       } else {
-        setMessage(`❌ AI Service Error: ${data.message || "Unable to fetch prediction"}`);
+        setMessage(`❌ Prediction Error: ${data.detail || data.message || "Unable to fetch prediction"}`);
       }
     } catch (error) {
-      setMessage(`❌ AI Service Unavailable. Make sure it's running on port 5001.`);
+      setMessage(`❌ Prediction service unavailable. Ensure the trading backend can reach the AI service.`);
     } finally {
       setPredictLoading(false);
     }

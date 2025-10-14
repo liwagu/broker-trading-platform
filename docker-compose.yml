@@ -1,0 +1,31 @@
+version: "3.9"
+
+services:
+  ai-service:
+    build:
+      context: ./ai-service
+    environment:
+      - KRONOS_MODE=auto
+      - KRONOS_DEVICE=cpu
+    ports:
+      - "5001:5001"
+
+  trading-service:
+    build:
+      context: .
+    environment:
+      - PREDICTION_SERVICE_BASE_URL=http://ai-service:5001
+    ports:
+      - "8080:8080"
+    depends_on:
+      - ai-service
+
+  trading-ui:
+    build:
+      context: ./trading-ui
+    environment:
+      - NEXT_PUBLIC_API_BASE_URL=http://localhost:8080
+    ports:
+      - "3000:3000"
+    depends_on:
+      - trading-service
