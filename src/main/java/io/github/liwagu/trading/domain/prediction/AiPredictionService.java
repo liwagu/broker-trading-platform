@@ -1,9 +1,11 @@
 package io.github.liwagu.trading.domain.prediction;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -16,16 +18,17 @@ public class AiPredictionService {
     private final RestTemplate restTemplate;
     private final String baseUrl;
 
+    @Autowired
     public AiPredictionService(
             RestTemplateBuilder restTemplateBuilder,
             @Value("${prediction.service.base-url:${PREDICTION_SERVICE_BASE_URL:http://localhost:5001}}") String baseUrl,
             @Value("${prediction.service.connect-timeout:${PREDICTION_SERVICE_CONNECT_TIMEOUT:PT2S}}") Duration connectTimeout,
             @Value("${prediction.service.read-timeout:${PREDICTION_SERVICE_READ_TIMEOUT:PT5S}}") Duration readTimeout) {
         this(restTemplateBuilder
-                        .setConnectTimeout(connectTimeout)
-                        .setReadTimeout(readTimeout)
-                        .defaultHeader("Accept", MediaType.APPLICATION_JSON_VALUE)
-                        .build(),
+                .setConnectTimeout(connectTimeout)
+                .setReadTimeout(readTimeout)
+                .defaultHeader("Accept", MediaType.APPLICATION_JSON_VALUE)
+                .build(),
                 baseUrl);
     }
 
@@ -51,6 +54,9 @@ public class AiPredictionService {
                 throw new AiPredictionException("AI service returned an empty response");
             }
             return prediction;
+        } catch (ResourceAccessException resourceAccessException) {
+            throw new AiPredictionNotAvailableException("Failed to reach AI prediction service",
+                    resourceAccessException);
         } catch (RestClientResponseException responseException) {
             throw new AiPredictionException(
                     "AI service responded with status %d: %s".formatted(
