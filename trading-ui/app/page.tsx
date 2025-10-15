@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PredictionChart } from "@/components/prediction-chart";
 
 const API_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080";
 const AI_API_URL = `${API_URL}/predictions`;
@@ -38,6 +39,11 @@ type PredictionPoint = {
   confidence_upper: number;
 };
 
+type HistoricalData = {
+  timestamps: string[];
+  prices: number[];
+};
+
 type Prediction = {
   isin: string;
   security_name: string;
@@ -47,6 +53,7 @@ type Prediction = {
   confidence: number;
   trend: string;
   ai_summary: string;
+  historical_data?: HistoricalData;
 };
 
 export default function TradingPlatform() {
@@ -366,66 +373,71 @@ export default function TradingPlatform() {
           </TabsContent>
 
           <TabsContent value="ai-forecast">
-            <div className="grid gap-6 md:grid-cols-2">
+            <div className="space-y-6">
+              {/* Control Panel */}
               <Card>
                 <CardHeader>
                   <CardTitle>AI Price Prediction</CardTitle>
-                  <CardDescription>Get 5-day forecast powered by Kronos</CardDescription>
+                  <CardDescription>Get 5-day forecast powered by Kronos with real market data from Yahoo Finance</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label>Select Security</Label>
-                    <Select value={forecastIsin} onValueChange={setForecastIsin}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {SECURITIES.map(s => (
-                          <SelectItem key={s.isin} value={s.isin}>
-                            {s.name} (${s.price})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                  <div className="flex gap-4 items-end">
+                    <div className="flex-1 space-y-2">
+                      <Label>Select Security</Label>
+                      <Select value={forecastIsin} onValueChange={setForecastIsin}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {SECURITIES.map(s => (
+                            <SelectItem key={s.isin} value={s.isin}>
+                              {s.name} (${s.price})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <Button
+                      onClick={() => fetchPrediction(forecastIsin)}
+                      disabled={predictLoading}
+                      size="lg"
+                      className="px-8"
+                    >
+                      {predictLoading ? "Analyzing..." : "🔮 Get AI Prediction"}
+                    </Button>
                   </div>
 
-                  <Button
-                    onClick={() => fetchPrediction(forecastIsin)}
-                    disabled={predictLoading}
-                    className="w-full"
-                    size="lg"
-                  >
-                    {predictLoading ? "Analyzing..." : "🔮 Get AI Prediction"}
-                  </Button>
-
                   {prediction && (
-                    <div className="space-y-4 mt-6">
-                      <div className="p-4 bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-950 dark:to-blue-950 rounded-lg">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="font-semibold">AI Signal</span>
-                          <Badge
-                            variant={prediction.signal === "BUY" ? "default" : prediction.signal === "SELL" ? "destructive" : "secondary"}
-                            className="text-lg px-4 py-1"
-                          >
-                            {prediction.signal}
-                          </Badge>
-                        </div>
-                        <div className="text-sm text-muted-foreground">
-                          Confidence: {(prediction.confidence * 100).toFixed(0)}% • Trend: {prediction.trend}
-                        </div>
+                    <div className="p-4 bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-950 dark:to-blue-950 rounded-lg">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="font-semibold">AI Signal</span>
+                        <Badge
+                          variant={prediction.signal === "BUY" ? "default" : prediction.signal === "SELL" ? "destructive" : "secondary"}
+                          className="text-lg px-4 py-1"
+                        >
+                          {prediction.signal}
+                        </Badge>
+                      </div>
+                      <div className="text-sm text-muted-foreground">
+                        Confidence: {(prediction.confidence * 100).toFixed(0)}% • Trend: {prediction.trend}
                       </div>
                     </div>
                   )}
                 </CardContent>
               </Card>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle>Forecast Details</CardTitle>
-                  <CardDescription>AI-powered price predictions</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {prediction ? (
+              {/* Chart Visualization */}
+              {prediction && <PredictionChart prediction={prediction} />}
+
+              {/* Detailed Data Table */}
+              {prediction && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Forecast Details</CardTitle>
+                    <CardDescription>Day-by-day predictions with confidence intervals</CardDescription>
+                  </CardHeader>
+                  <CardContent>
                     <div className="space-y-4">
                       <div className="p-4 bg-muted rounded-lg">
                         <p className="text-sm leading-relaxed">{prediction.ai_summary}</p>
@@ -455,18 +467,26 @@ export default function TradingPlatform() {
                         </Table>
                       </div>
 
-                      <div className="text-xs text-muted-foreground pt-4 border-t">
+                      <div className="text-xs text-muted-foreground pt-4 border-t space-y-1">
                         <p>⚡ Powered by Kronos (Tsinghua University)</p>
-                        <p className="mt-1">Model trained on 45+ global exchanges</p>
+                        <p>📊 Real market data from Yahoo Finance via yfinance</p>
+                        <p>🔮 Model trained on 45+ global exchanges</p>
                       </div>
                     </div>
-                  ) : (
-                    <p className="text-center text-muted-foreground py-8">
-                      Select a security and click &quot;Get AI Prediction&quot; to see the forecast.
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Empty State */}
+              {!prediction && !predictLoading && (
+                <Card>
+                  <CardContent className="py-12">
+                    <p className="text-center text-muted-foreground">
+                      Select a security and click &quot;Get AI Prediction&quot; to see the forecast with real market data.
                     </p>
-                  )}
-                </CardContent>
-              </Card>
+                  </CardContent>
+                </Card>
+              )}
             </div>
           </TabsContent>
 
