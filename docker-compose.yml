@@ -3,8 +3,6 @@ services:
     build:
       context: ./ai-service
     environment:
-      # Kronos Mode: auto (try Kronos, fallback to simulator) | kronos (require Kronos) | simulated (always simulator)
-      - KRONOS_MODE=auto
       - KRONOS_DEVICE=cpu
       # Model Registry: HuggingFace model IDs (weights downloaded at startup)
       - KRONOS_MODEL_ID=NeoQuasar/Kronos-small

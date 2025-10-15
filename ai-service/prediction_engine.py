@@ -1,10 +1,8 @@
-"""Prediction engine abstractions for Kronos integration.
+"""Prediction engine for Kronos integration (Kronos-only).
 
-This module centralises how the FastAPI service loads a predictor instance.
-It attempts to initialise the Kronos model when the library is available and
-will gracefully fall back to a statistical simulator otherwise. This lets us
-ship a working demo today while keeping the upgrade path to the real Kronos
-weights straightforward.
+This module loads the Kronos predictor and exposes a stable interface for the
+FastAPI service. Simulation/fallback modes have been removed to ensure we only
+serve real Kronos-backed predictions.
 """
 
 from __future__ import annotations
@@ -12,34 +10,25 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass
-from datetime import datetime, timedelta
-from typing import Dict, Iterable, List
-
-import numpy as np
+from typing import Dict, List
 
 
 logger = logging.getLogger(__name__)
 
 
-# Default securities and heuristics that mirror the previous MVP behaviour.
+# Supported securities and their display info (can be moved to DB later)
 SECURITIES: Dict[str, Dict[str, object]] = {
     "US67066G1040": {
         "name": "NVIDIA Corp",
         "current_price": 100.0,
-        "volatility": 0.03,
-        "trend": "bullish",
     },
     "US0378331005": {
         "name": "Apple Inc",
         "current_price": 200.0,
-        "volatility": 0.02,
-        "trend": "neutral",
     },
     "US5949181045": {
         "name": "Microsoft Corp",
         "current_price": 35.5,
-        "volatility": 0.025,
-        "trend": "bullish",
     },
 }
 
@@ -88,9 +77,9 @@ class KronosPredictorBackend(BasePredictor):
     def __init__(self, model_name: str | None = None, device: str | None = None):
         try:
             from kronos_integration import KronosPredictorBackend as RealKronosBackend
-        except Exception as exc:  # pragma: no cover - exercised when kronos missing
+        except Exception as exc:  # pragma: no cover
             raise RuntimeError(
-                "Kronos integration not available. Install dependencies or set KRONOS_MODE=simulated."
+                "Kronos integration not available. Ensure ai-service dependencies are installed and model files resolve."
             ) from exc
 
         logger.info("Initializing Kronos predictor with Model Registry pattern (HuggingFace Hub)")
@@ -164,94 +153,12 @@ class KronosPredictorBackend(BasePredictor):
         )
 
 
-class SimulatedPredictorBackend(BasePredictor):
-    """A statistical simulator that mirrors the original MVP behaviour."""
-
-    def predict(self, isin: str, horizon_days: int) -> Prediction:
-        if isin not in SECURITIES:
-            raise ValueError(f"Unknown ISIN: {isin}")
-
-        security = SECURITIES[isin]
-        current_price = float(security["current_price"])
-        volatility = float(security["volatility"])
-        trend = str(security["trend"])
-
-        base_date = datetime.now()
-
-        if trend == "bullish":
-            drift = 0.015
-            signal = "BUY"
-            confidence = float(np.random.uniform(0.78, 0.92))
-            summary_template = (
-                "Strong upward momentum detected. Predicted {pct:+.1f}% move in {days} days."
-                " Technical indicators suggest continued bullish trend."
-            )
-        elif trend == "bearish":
-            drift = -0.012
-            signal = "SELL"
-            confidence = float(np.random.uniform(0.75, 0.88))
-            summary_template = (
-                "Bearish signals detected. Predicted {pct:+.1f}% move in {days} days."
-                " Consider profit-taking or position reduction."
-            )
-        else:
-            drift = 0.002
-            signal = "HOLD"
-            confidence = float(np.random.uniform(0.65, 0.78))
-            summary_template = (
-                "Neutral outlook. Predicted {pct:+.1f}% move in {days} days."
-                " Market consolidation expected."
-            )
-
-        predictions: List[PredictionPoint] = []
-        for day in range(1, horizon_days + 1):
-            random_shock = float(np.random.normal(0, volatility))
-            price_change = current_price * (drift + random_shock)
-            predicted_price = current_price + (price_change * day)
-            confidence_width = volatility * current_price * (1 + 0.3 * day)
-
-            predictions.append(
-                PredictionPoint(
-                    date=(base_date + timedelta(days=day)).strftime("%Y-%m-%d"),
-                    predicted_price=round(predicted_price, 2),
-                    confidence_lower=round(predicted_price - confidence_width, 2),
-                    confidence_upper=round(predicted_price + confidence_width, 2),
-                )
-            )
-
-        final_price = predictions[-1].predicted_price
-        price_change_pct = ((final_price - current_price) / current_price) * 100
-        ai_summary = summary_template.format(pct=price_change_pct, days=horizon_days)
-
-        return Prediction(
-            isin=isin,
-            security_name=str(security["name"]),
-            current_price=current_price,
-            predictions=predictions,
-            signal=signal,
-            confidence=round(confidence, 2),
-            trend=trend,
-            ai_summary=ai_summary,
-        )
-
-
 def _determine_backend() -> BasePredictor:
-    mode = os.getenv("KRONOS_MODE", "auto").lower()
-
-    if mode == "simulated":
-        logger.info("Using simulated Kronos predictor backend due to KRONOS_MODE override")
-        return SimulatedPredictorBackend()
-
-    try:
-        return KronosPredictorBackend()
-    except RuntimeError as exc:
-        if mode == "auto":
-            logger.warning("Falling back to simulated predictor: %s", exc)
-            return SimulatedPredictorBackend()
-        raise
+    # Kronos-only: initialization must succeed, otherwise raise and crash the service
+    return KronosPredictorBackend()
 
 
-PREDICTOR_BACKEND: BasePredictor = _determine_backend()
+PREDICTOR_BACKEND: BasePredictor | None = None
 
 
 def generate_prediction(isin: str, horizon_days: int) -> Prediction:
@@ -260,5 +167,8 @@ def generate_prediction(isin: str, horizon_days: int) -> Prediction:
     if horizon_days <= 0:
         raise ValueError("horizon_days must be positive")
 
+    global PREDICTOR_BACKEND
+    if PREDICTOR_BACKEND is None:
+        PREDICTOR_BACKEND = _determine_backend()
     return PREDICTOR_BACKEND.predict(isin, horizon_days)
 

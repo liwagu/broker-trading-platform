@@ -17,7 +17,7 @@ graph LR
     Spring -->|REST /predict| FastAPI[FastAPI ai-service]
     Spring -->|JPA| H2[(In-memory H2 DB)]
     FastAPI -->|KronosPredictor| Kronos[(Kronos Model + Weights)]
-    FastAPI -. simulator fallback .- Sim[Statistical Simulator]
+  FastAPI -->|HuggingFace Hub| HF[(Model Weights Cache)]
 ```
 
 ## Quick Start
@@ -28,13 +28,13 @@ docker compose up --build
 
 Environment highlights:
 
-| Variable | Purpose | Default |
-| --- | --- | --- |
-| `KRONOS_MODE` | `auto` loads Kronos if installed, `simulated` forces fallback | `auto` |
-| `KRONOS_DEVICE` | Set to `cpu`, `cuda`, etc. | `cpu` |
-| `KRONOS_MODEL_NAME` | Kronos checkpoint to load | `shiyu-coder/Kronos-mini` |
-| `PREDICTION_SERVICE_BASE_URL` | AI service URL used by Spring Boot | `http://localhost:5001` |
-| `NEXT_PUBLIC_API_BASE_URL` | Frontend base URL for the trading service | `http://localhost:8080` |
+| Variable                      | Purpose                                   | Default                           |
+| ----------------------------- | ----------------------------------------- | --------------------------------- |
+| `KRONOS_DEVICE`               | Set to `cpu`, `cuda`, or `cuda:0`         | `cpu`                             |
+| `KRONOS_MODEL_ID`             | Hugging Face model ID for Kronos          | `NeoQuasar/Kronos-small`          |
+| `KRONOS_TOKENIZER_ID`         | Hugging Face tokenizer ID                 | `NeoQuasar/Kronos-Tokenizer-base` |
+| `PREDICTION_SERVICE_BASE_URL` | AI service URL used by Spring Boot        | `http://localhost:5001`           |
+| `NEXT_PUBLIC_API_BASE_URL`    | Frontend base URL for the trading service | `http://localhost:8080`           |
 
 To persist Kronos weights across rebuilds, mount a cache directory:
 
@@ -42,7 +42,7 @@ To persist Kronos weights across rebuilds, mount a cache directory:
 services:
   ai-service:
     volumes:
-      - ./data/kronos-cache:/root/.cache/kronos
+      - ./cache/huggingface:/root/.cache/huggingface
 ```
 
 ### Run Without Docker
@@ -67,6 +67,26 @@ npm run dev -- --port 3000
 ```
 
 **Note:** The platform uses an in-memory H2 database by default. All data (orders, portfolios, inventory) is lost when the Spring Boot service restarts.
+
+## Historical Market Data for Kronos (what to plug in)
+
+Right now, the Kronos predictor in `ai-service/kronos_integration/predictor.py` uses synthetic price bars purely to demonstrate end-to-end wiring. In production you should fetch real historical OHLCV data for the requested ISIN and pass it to the predictor. At minimum you need a DataFrame with columns:
+
+- `open`, `high`, `low`, `close`, `volume` (optionally `amount`)
+- A matching timestamp index (5-minute bars are assumed in the sample)
+
+Where should this data come from?
+- Your own market data store (PostgreSQL, TimescaleDB, ClickHouse, etc.)
+- A vendor API (e.g., Polygon.io, Tiingo, Alpha Vantage) cached into your DB
+- For research, any CSV/Parquet you maintain for the instruments you support
+
+See `ref/Kronos-demo/update_predictions.py` for a simple example that loads a local dataset and runs a prediction pipeline; we follow a similar shape. To wire this into our service, replace the placeholder synthetic block in `kronos_integration/predictor.py` with a function that queries your data store by ISIN, builds `x_df` (historical lookback rows), and constructs `x_timestamp`/`y_timestamp` ranges to match the desired prediction horizon.
+
+Pseudo-contract for that function:
+- input: `isin: str`, `lookback: int`, `pred_len: int`
+- output: `(x_df: pd.DataFrame[open,high,low,close,volume,amount], x_timestamp: DatetimeIndex, y_timestamp: DatetimeIndex)`
+
+Once you have it, inject it into the predictor and remove the synthetic data code path.
 
 ## Connecting to Your Own Trading Account
 

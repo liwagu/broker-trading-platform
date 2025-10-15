@@ -3,7 +3,6 @@ FROM python:3.12-slim AS base
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    KRONOS_MODE=auto \
     KRONOS_DEVICE=cpu \
     KRONOS_MODEL_ID=NeoQuasar/Kronos-small \
     KRONOS_TOKENIZER_ID=NeoQuasar/Kronos-Tokenizer-base \
@@ -25,9 +24,6 @@ RUN pip install --upgrade pip \
 # Model Registry Pattern:
 # - Inference code is shipped in the container (kronos_integration/)
 # - Model weights are downloaded from Hugging Face Hub at startup
-# - Set KRONOS_MODE=auto to try Kronos first, fallback to simulator
-# - Set KRONOS_MODE=kronos to require Kronos (fail if unavailable)
-# - Set KRONOS_MODE=simulated to always use statistical simulator
 
 COPY . .
 

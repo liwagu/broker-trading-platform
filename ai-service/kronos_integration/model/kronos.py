@@ -1,13 +1,14 @@
 import numpy as np
 import pandas as pd
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 from huggingface_hub import PyTorchModelHubMixin
-import sys
 
 from tqdm import trange
 
-sys.path.append("../")
-from model.module import *
+# Use package-relative imports to ensure the module resolves inside the container
+from .module import *
 
 
 class KronosTokenizer(nn.Module, PyTorchModelHubMixin):
@@ -379,7 +380,7 @@ def sample_from_logits(logits, temperature=1.0, top_k=None, top_p=None, sample_l
     probs = F.softmax(logits, dim=-1)
 
     if not sample_logits:
-        _, x = top_k(probs, k=1, dim=-1)
+        _, x = torch.topk(probs, k=1, dim=-1)
     else:
         x = torch.multinomial(probs, num_samples=1)
 
@@ -444,12 +445,25 @@ def auto_regressive_inference(tokenizer, model, x, x_stamp, y_stamp, max_context
 
 
 def calc_time_stamps(x_timestamp):
+    """Return a DataFrame of time features for the given timestamps.
+
+    Accepts either a pandas Series or DatetimeIndex. Normalizes access so we
+    can use the .dt accessor reliably.
+    """
+    ts = x_timestamp
+    if isinstance(ts, pd.DatetimeIndex):
+        ts = pd.Series(ts)
+    else:
+        ts = pd.Series(ts)
+        if not pd.api.types.is_datetime64_any_dtype(ts):
+            ts = pd.to_datetime(ts)
+
     time_df = pd.DataFrame()
-    time_df['minute'] = x_timestamp.dt.minute
-    time_df['hour'] = x_timestamp.dt.hour
-    time_df['weekday'] = x_timestamp.dt.weekday
-    time_df['day'] = x_timestamp.dt.day
-    time_df['month'] = x_timestamp.dt.month
+    time_df['minute'] = ts.dt.minute
+    time_df['hour'] = ts.dt.hour
+    time_df['weekday'] = ts.dt.weekday
+    time_df['day'] = ts.dt.day
+    time_df['month'] = ts.dt.month
     return time_df
 
 
