@@ -67,6 +67,9 @@ trading-ui/.turbo/
 ref/
 
 .playwright-mcp/
+.claude/
+.codex/
+.specify/
 
 # Local backup patches
 .backup-patches/
