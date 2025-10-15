@@ -493,6 +493,52 @@ export default function TradingPlatform() {
                     Query
                   </Button>
                 </div>
+
+                {orders.length > 0 && (
+                  <div className="mt-6">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>ID</TableHead>
+                          <TableHead>Portfolio</TableHead>
+                          <TableHead>ISIN</TableHead>
+                          <TableHead>Side</TableHead>
+                          <TableHead>Quantity</TableHead>
+                          <TableHead>Price</TableHead>
+                          <TableHead>Total</TableHead>
+                          <TableHead>Status</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {orders.map((order) => (
+                          <TableRow key={order.id}>
+                            <TableCell className="font-medium">{order.id}</TableCell>
+                            <TableCell>{order.portfolioId}</TableCell>
+                            <TableCell className="font-mono text-xs">{order.isin}</TableCell>
+                            <TableCell>
+                              <Badge variant={order.side === "BUY" ? "default" : "secondary"}>
+                                {order.side}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>{order.quantity}</TableCell>
+                            <TableCell>${order.price.toFixed(2)}</TableCell>
+                            <TableCell>${(order.quantity * order.price).toFixed(2)}</TableCell>
+                            <TableCell>
+                              <Badge
+                                variant={
+                                  order.status === "CREATED" ? "outline" :
+                                  order.status === "EXECUTED" ? "default" : "destructive"
+                                }
+                              >
+                                {order.status}
+                              </Badge>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
