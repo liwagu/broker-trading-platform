@@ -154,8 +154,23 @@ class KronosPredictorBackend(BasePredictor):
 
 
 def _determine_backend() -> BasePredictor:
-    # Kronos-only: initialization must succeed, otherwise raise and crash the service
-    return KronosPredictorBackend()
+    # Try Kronos, but fall back to simulation with real data if it fails
+    import os
+    use_real_data = os.getenv("USE_REAL_DATA", "true").lower() == "true"
+
+    if not use_real_data:
+        logger.warning("⚠️  Using simulation mode (no Kronos model)")
+        from fallback_predictor import RealDataFallbackPredictor
+        return RealDataFallbackPredictor()
+
+    try:
+        logger.info("Attempting to initialize Kronos predictor...")
+        return KronosPredictorBackend()
+    except Exception as e:
+        logger.error(f"❌ Kronos initialization failed: {e}")
+        logger.warning("⚠️  Falling back to real data simulation (no Kronos model)")
+        from fallback_predictor import RealDataFallbackPredictor
+        return RealDataFallbackPredictor()
 
 
 PREDICTOR_BACKEND: BasePredictor | None = None

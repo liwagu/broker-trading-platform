@@ -71,48 +71,43 @@ class KronosPredictorBackend:
 
     def predict(self, isin: str, horizon_days: int) -> Dict:
         """
-        Generate price prediction using Kronos model.
-        
+        Generate price prediction using Kronos model with REAL market data.
+
         Args:
-            isin: Security identifier (not used by demo - would fetch historical data in production)
+            isin: Security identifier (fetches real data from Yahoo Finance)
             horizon_days: Number of days to predict
-            
+
         Returns:
-            Dict with prediction data
-            
-        Note:
-            This is a demo implementation. In production, you would:
-            1. Fetch historical data for the given ISIN from your database
-            2. Prepare timestamps for historical and future periods
-            3. Call predictor.predict() with actual data
+            Dict with prediction data including real historical prices
         """
         logger.info(f"Generating Kronos prediction for {isin} with horizon {horizon_days} days")
 
         try:
-            # TODO: In production, fetch real historical data for this ISIN
-            # For now, use synthetic data as demonstration
+            # Import market data module
+            import sys
+            from pathlib import Path
+            sys.path.insert(0, str(Path(__file__).parent.parent))
+            from market_data import get_historical_data, generate_future_timestamps, get_current_price
+
+            # Fetch REAL historical data from Yahoo Finance
             pred_len = horizon_days * 78  # Assuming 78 5-minute intervals per day
             lookback = 400  # Historical context length
 
-            # Create synthetic historical data (replace with database query)
-            dates = pd.date_range(end=pd.Timestamp.now(), periods=lookback + pred_len, freq='5min')
-            
-            # Synthetic price data (replace with real data)
-            import numpy as np
-            np.random.seed(42)
-            prices = 100 + np.cumsum(np.random.randn(lookback) * 0.5)
-            
-            x_df = pd.DataFrame({
-                'open': prices,
-                'high': prices * 1.01,
-                'low': prices * 0.99,
-                'close': prices,
-                'volume': np.random.randint(1000, 10000, lookback),
-                'amount': np.random.randint(100000, 1000000, lookback)
-            })
+            logger.info(f"📊 Fetching real market data for {isin}...")
+            x_df, x_timestamp = get_historical_data(
+                isin=isin,
+                lookback=lookback,
+                interval='5m'
+            )
 
-            x_timestamp = dates[:lookback]
-            y_timestamp = dates[lookback:lookback + pred_len]
+            # Generate future timestamps
+            y_timestamp = generate_future_timestamps(
+                last_timestamp=x_timestamp[-1],
+                pred_len=pred_len,
+                interval='5m'
+            )
+
+            logger.info(f"✅ Using REAL data: {len(x_df)} historical points from {x_timestamp[0]} to {x_timestamp[-1]}")
 
             # Generate prediction using Kronos
             pred_df = self.predictor.predict(
@@ -141,18 +136,28 @@ class KronosPredictorBackend:
                         'confidence': 0.85  # TODO: Calculate real confidence from model
                     })
 
+            # Get current price from real market data
+            current_price = get_current_price(isin)
+
             result = {
                 'isin': isin,
                 'model': 'kronos',
                 'model_version': self.model_id,
                 'prediction_horizon_days': horizon_days,
-                'current_price': float(prices[-1]),
+                'current_price': current_price,
                 'predictions': daily_predictions,
+                'historical_data': {
+                    'timestamps': [ts.isoformat() for ts in x_timestamp[-20:]],  # Last 20 points for chart
+                    'prices': x_df['close'].tail(20).tolist()
+                },
                 'metadata': {
                     'device': self.device,
                     'max_context': self.max_context,
                     'lookback_periods': lookback,
-                    'prediction_periods': pred_len
+                    'prediction_periods': pred_len,
+                    'data_source': 'Yahoo Finance (yfinance)',
+                    'data_start': x_timestamp[0].isoformat(),
+                    'data_end': x_timestamp[-1].isoformat()
                 }
             }
 
