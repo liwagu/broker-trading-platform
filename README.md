@@ -66,6 +66,8 @@ npm install
 npm run dev -- --port 3000
 ```
 
+**Note:** The platform uses an in-memory H2 database by default. All data (orders, portfolios, inventory) is lost when the Spring Boot service restarts.
+
 ## Connecting to Your Own Trading Account
 
 1. Keep the Kronos inference service running (Docker or host Python) so forecasts remain available.
